@@ -12,21 +12,59 @@ https://docs.djangoproject.com/en/2.1/ref/settings/
 
 import os
 
+# SECURITY WARNING: don't run with debug turned on in production!
+DEBUG = True
+LOCALENV = True
+
 # Build paths inside the project like this: os.path.join(BASE_DIR, ...)
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+if LOCALENV:
+    BASE_DIR_MEDIA = BASE_DIR
+else:
+    BASE_DIR_MEDIA = "/mnt/public-media/"
+
+# Media files
+MEDIA_ROOT = os.path.join(BASE_DIR_MEDIA, 'media/')
+MEDIA_URL = '/media/'
+
+# Static files (CSS, JavaScript, Images)
+# https://docs.djangoproject.com/en/1.8/howto/static-files/
+STATIC_ROOT = os.path.join(BASE_DIR, 'static/')
+STATIC_URL = '/static/'
+
+# Search static files in this pfads too / because website_public is no app
+STATIC_DIR = os.path.join(BASE_DIR, 'website_public/static/')
+STATICFILES_DIRS = [STATIC_DIR]
 
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/2.1/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = ')++rjvn5=u0&lcro5c&8gedb-a7q0bn84513%(%y0z%6&48#-5'
+SECRET_KEY = open(BASE_DIR + "/../blog_secret/secret_key.dat").read().strip()
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+# DISABLE IF LOCAL PRODUCTION - Think on pipeline enable at bottom
+if LOCALENV:
+    ALLOWED_HOSTS = ['localhost']
+else:
+    ALLOWED_HOSTS = ['nicisblog.de', 'www.nicisblog.de']
 
-ALLOWED_HOSTS = []
 
+# DEPLOY SECURITY OPTIONS
+if not LOCALENV:
+    SECURE_HSTS_SECONDS = 60
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    SECURE_BROWSER_XSS_FILTER = True
+    SECURE_SSL_REDIRECT = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    X_FRAME_OPTIONS = 'DENY'
+
+#Contrip.sites
+SITE_ID = 1
 
 # Application definition
 
@@ -37,16 +75,20 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'pipeline',
 ]
 
 MIDDLEWARE = [
-    'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    #'django.contrib.auth.middleware.SessionAuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'django.middleware.security.SecurityMiddleware',
+	'django.middleware.gzip.GZipMiddleware',
+   	'pipeline.middleware.MinifyHTMLMiddleware',
 ]
 
 ROOT_URLCONF = 'blog.urls'
@@ -54,7 +96,10 @@ ROOT_URLCONF = 'blog.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [
+					STATIC_DIR,
+					STATIC_DIR + '/main/templates/',
+				],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -62,7 +107,11 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+                'django.template.context_processors.media',
             ],
+            'libraries': {
+				'navigation': 'blog.templatetags.navigation',
+			},
         },
     },
 ]
@@ -75,10 +124,105 @@ WSGI_APPLICATION = 'blog.wsgi.application'
 
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': os.path.join(BASE_DIR, 'db.sqlite3'),
+        'ENGINE': 'django.db.backends.postgresql_psycopg2',
+        'NAME': 'blog',
+        'USER': 'nici',
+        'PASSWORD': open(BASE_DIR + "/../blog_secret/db.dat").read().strip(),
+        'HOST': 'localhost',
+        'PORT': '',
     }
 }
+
+# Pipeline Configrations
+STATICFILES_STORAGE = 'pipeline.storage.PipelineCachedStorage'
+STATICFILES_FINDERS = (
+	'django.contrib.staticfiles.finders.FileSystemFinder',
+	'django.contrib.staticfiles.finders.AppDirectoriesFinder',
+	'pipeline.finders.PipelineFinder',
+)
+
+PIPELINE_OUTPUT_CSS = "pipeline/css/"
+PIPELINE_OUTPUT_JS = "pipeline/js/"
+PIPELINE = {
+	'PIPELINE_ENABLED': not LOCALENV,
+	'STYLESHEETS': {
+		'main': {
+			'source_filenames': (
+				'main/css/bootstrap-4.1.3/bootstrap.min.css',
+				'main/css/style.css',
+			),
+			'output_filename': PIPELINE_OUTPUT_CSS + "main.css",
+		},
+	},
+	'JAVASCRIPT': {
+		'main': {
+			'source_filenames': (
+				'main/js/jquery.min-3.3.1.js',
+				'main/js/bootstrap-4.1.3/bootstrap.min.js',
+			),
+				'output_filename': PIPELINE_OUTPUT_JS + "pipeline/js/main.js",
+		}
+	}
+}
+
+PIPELINE['CSS_COMPRESSOR'] = 'pipeline.compressors.yuglify.YuglifyCompressor'
+PIPELINE['JS_COMPRESSOR'] = 'pipeline.compressors.yuglify.YuglifyCompressor'
+
+
+# Internationalization
+# https://docs.djangoproject.com/en/1.8/topics/i18n/
+LANGUAGE_CODE = 'DE'
+TIME_ZONE = 'Europe/Berlin'
+USE_I18N = True
+USE_L10N = True
+USE_TZ = True
+
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {
+        'file': {
+            'level': 'DEBUG',
+            'class': 'logging.FileHandler',
+            'filename': BASE_DIR + '/../debug.log',
+        },
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['file'],
+            'level': 'DEBUG',
+            'propagate': True,
+        },
+    },
+}
+
+# Check if a module exists or not
+def module_exists(module_name):
+    try:
+        __import__(module_name)
+    except ImportError:
+        return False
+    else:
+        return True
+
+# Check if module exists, because local we dont use netifaces.
+if module_exists("netifaces"):
+	import netifaces
+
+	# Find out what the IP addresses are at run time
+	# This is necessary because otherwise Gunicorn will reject the connections
+	def ip_addresses():
+	    ip_list = []
+	    for interface in netifaces.interfaces():
+	        addrs = netifaces.ifaddresses(interface)
+	        for x in (netifaces.AF_INET, netifaces.AF_INET6):
+	            if x in addrs:
+	                ip_list.append(addrs[x][0]['addr'])
+	    return ip_list
+
+	# Discover our IP address
+	ALLOWED_HOSTS = ip_addresses()
 
 
 # Password validation
@@ -98,23 +242,3 @@ AUTH_PASSWORD_VALIDATORS = [
         'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
     },
 ]
-
-
-# Internationalization
-# https://docs.djangoproject.com/en/2.1/topics/i18n/
-
-LANGUAGE_CODE = 'en-us'
-
-TIME_ZONE = 'UTC'
-
-USE_I18N = True
-
-USE_L10N = True
-
-USE_TZ = True
-
-
-# Static files (CSS, JavaScript, Images)
-# https://docs.djangoproject.com/en/2.1/howto/static-files/
-
-STATIC_URL = '/static/'
